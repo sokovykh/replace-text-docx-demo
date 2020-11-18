@@ -4,6 +4,17 @@
 
 <div class="text-center">
     <h1 class="display-4">Welcome</h1>
-    <p><b>New string! x..x</b></p>
-    <p>Learn about <a href="https://docs.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+    <p>Sources for this demo you can find here: <a href="https://github.com/sokovykh/replace-text-docx-demo">github.com/sokovykh/replace-text-docx-demo</a>.</p>
 </div>
+
+
+<form asp-action="AddFile" asp-controller="Home" method="post" enctype="multipart/form-data">
+    <label for="docxFile">Choose a DOCX file:</label>
+    <input id="docxFile" type="file" name="uploads" /><br>
+    <label for="docxFile">Choose a YAML file:</label>
+    <input id="yamlFile" type="file" name="uploads" /><br>
+    
+    <input type="submit" value="Загрузить" />
+</form>
+
+

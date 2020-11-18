@@ -1,0 +1,32 @@
+student:
+  forename: Alex
+  surname: Smith
+  form: 2E
+  attendance: 95
+  auth-abscence: 3
+  unath-abscence: 1
+  positive-behaviour: 10
+  negative-behaviour: 1
+  possible-sessions: 10
+
+  subjects:
+    - name: Computer Science
+      target: 6
+      working: 4
+      progress: good
+      atl: excellent
+      comment: Homework is always returned in a timely manner
+    
+    - name: Food Technology
+      target: Level 2 Distinction
+      working: Level 2 Distinction
+      progress: excellent
+      atl: good
+      comment: Consistent quality of work
+
+  school:
+    logo: https://link.to.logo
+    name: Birmingham Primary
+    address1: 1 Smith Street
+    address2: Birmingham
+    principal: Bob Smith
