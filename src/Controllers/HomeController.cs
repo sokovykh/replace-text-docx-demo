@@ -13,63 +13,154 @@ using DocumentFormat.OpenXml.Packaging;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using YamlDotNet.RepresentationModel;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 
 namespace replace_text_docx.Controllers
 {
     public class HomeController : Controller
     {
+
+        private void ProcessSimplePlaceholders(StreamReader yamlStream, WordprocessingDocument document)
+        {
+            // prepare YAML document
+            TextReader yamlReader = yamlStream;
+            var deserializer = new YamlDotNet.Serialization.Deserializer();
+            var studentObject = deserializer.Deserialize<dynamic>(yamlReader)["student"];
+
+            var cachedTexts = new Dictionary<string, string>();
+
+            // students
+            foreach (var key in studentObject.Keys)
+            {
+                var value = studentObject[key];
+                var isString = value.GetType() == typeof(String);
+                if (isString)
+                {
+                    string placeholder = "{student." + key + "}";
+                    string replace_text = value;
+
+                    cachedTexts.Add(placeholder, replace_text);
+                }
+            }
+
+            // school
+            var schoolObject = studentObject["school"];
+            foreach (var key in schoolObject.Keys)
+            {
+                var value = schoolObject[key];
+                var isString = value.GetType() == typeof(String);
+                if (isString)
+                {
+                    string placeholder = "{student.school." + key + "}";
+                    string replace_text = value;
+
+                    cachedTexts.Add(placeholder, replace_text);
+                }
+            }
+
+            // replace simple placeholders
+            foreach (var item in cachedTexts)
+            {
+                SearchAndReplacer.SearchAndReplace(document, item.Key, item.Value, true);
+            }
+        }
+
+        private void ProcessTables(StreamReader yamlStream, WordprocessingDocument document)
+        {
+            // prepare YAML document
+            TextReader yamlReader = yamlStream;
+            var deserializer = new YamlDotNet.Serialization.Deserializer();
+            var studentObject = deserializer.Deserialize<dynamic>(yamlReader)["student"];
+            var subjectsObject = studentObject["subjects"];
+
+            // process docx file
+            Body body = document.MainDocumentPart.Document.Body;
+            foreach (Table table in body.Descendants<Table>())
+            {
+                if (table.InnerText.Contains("{student.subjects"))
+                {
+                    var columnTemplates = new Dictionary<string, int>();
+
+                    TableRow row = table.Elements<TableRow>().ElementAt(1);
+                    var columns = row.Elements<TableCell>().ToList();
+                    for (var i = 0; i < columns.Count; i++)
+                    {
+                        var template = columns[i].InnerText;
+                        if (template.Contains("{student.subjects."))
+                        {
+                            template = template.Replace("{student.subjects.", "");
+                            template = template.Replace("}", "");
+
+                            columnTemplates.Add(template.ToLower(), i);
+                        }
+                        else
+                        {
+                            columnTemplates.Add(string.Empty, i);
+                        }
+                    }
+
+                    if (columnTemplates.Count > 0)
+                    {
+                        // remove template row
+                        row.Remove();
+
+                        // subjects
+                        var subjects = studentObject["subjects"];
+                        foreach (var subjectRow in subjects)
+                        {
+                            var cachedColumns = new Dictionary<string, string>();
+                            var subjectColumns = subjectRow.Keys;
+                            foreach (var column in subjectColumns)
+                            {
+                                var value = subjectRow[column];
+                                var isString = value.GetType() == typeof(String);
+                                if (isString)
+                                {
+                                    string placeholder = column;
+                                    string replace_text = value;
+
+                                    cachedColumns.Add(placeholder.ToLower(), replace_text);
+                                }
+                            }
+
+                            TableRow newTableRow = new TableRow();
+                            foreach (var columnTemplate in columnTemplates)
+                            {
+                                if (columnTemplate.Key == string.Empty)
+                                {
+                                    newTableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(string.Empty)))));
+                                }
+                                else
+                                {
+                                    var text = cachedColumns[columnTemplate.Key];
+                                    newTableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(text)))));
+                                }
+                            }
+
+                            table.AppendChild(newTableRow);
+                        }
+                    }
+                }
+            }
+        }
+
         public IActionResult Index()
         {
-            // TextReader tr = new StreamReader("input_file.yaml");
-
-            // var cachedTexts = new Dictionary<string, string>();
-
-            // var deserializer = new YamlDotNet.Serialization.Deserializer();
-
-            // // student 
-            // var studentObject = deserializer.Deserialize<dynamic>(tr)["student"];
-            // foreach (var key in studentObject.Keys)
-            // {
-            //     var value = studentObject[key];
-            //     var isString = value.GetType() == typeof(String);
-            //     if (isString)
-            //     {
-            //         string placeholder = "{student." + key + "}";
-            //         string replace_text = value;
-
-            //         cachedTexts.Add(placeholder, replace_text);
-            //     }
-            // }
-
-            // // school
-            // var schoolObject = studentObject["school"];
-            // foreach (var key in schoolObject.Keys)
-            // {
-            //     var value = schoolObject[key];
-            //     var isString = value.GetType() == typeof(String);
-            //     if (isString)
-            //     {
-            //         string placeholder = "{student.school." + key + "}";
-            //         string replace_text = value;
-
-            //         cachedTexts.Add(placeholder, replace_text);
-            //     }
-            // }
+            // for local testing
 
             // FileStream fileStream = new FileStream("report_template.docx", FileMode.Open);
             // using (var ms = new MemoryStream())
             // {
             //     fileStream.CopyTo(ms);
 
-            //     using (WordprocessingDocument doc = WordprocessingDocument.Open(ms, true))
+            //     using (WordprocessingDocument document = WordprocessingDocument.Open(ms, true))
             //     {
-            //         foreach (var item in cachedTexts)
-            //         {
-            //             SearchAndReplacer.SearchAndReplace(doc, item.Key, item.Value, true);
-            //         }
+            //         ProcessSimplePlaceholders(new StreamReader("input_file.yaml"), document);
+            //         ProcessTables(new StreamReader("input_file.yaml"), document);
             //     }
 
-            //     using(var fileStreamW = new FileStream("RESULT.docx", FileMode.Truncate))
+            //     using (var fileStreamW = new FileStream("CHECK_RESULT.docx", FileMode.Create))
             //     {
             //         fileStreamW.Write(ms.ToArray());
             //     }
@@ -95,98 +186,30 @@ namespace replace_text_docx.Controllers
             IFormFile docxFile = uploads.Where(x => x.FileName.ToLower().Contains(".docx")).FirstOrDefault();
             IFormFile yamlFile = uploads.Where(x => x.FileName.ToLower().Contains(".yaml")).FirstOrDefault();
 
-            // if (docxFile == null || yamlFile == null)
-            // {
-            //     throw new Exception("No files");
-            // }
+            if (docxFile == null || yamlFile == null)
+            {
+                throw new Exception("No files");
+            }
 
             if (docxFile.Length > 0 && yamlFile.Length > 0)
             {
-                TextReader tr = new StreamReader(yamlFile.OpenReadStream());
-
-                var cachedTexts = new Dictionary<string, string>();
-
-                var deserializer = new YamlDotNet.Serialization.Deserializer();
-
-                // student 
-                var studentObject = deserializer.Deserialize<dynamic>(tr)["student"];
-                foreach (var key in studentObject.Keys)
+                //TextReader yamlReader = new StreamReader(yamlFile.OpenReadStream());
+                using (var memoryStream = new MemoryStream())
                 {
-                    var value = studentObject[key];
-                    var isString = value.GetType() == typeof(String);
-                    if (isString)
+                    docxFile.CopyTo(memoryStream);
+
+                    using (WordprocessingDocument document = WordprocessingDocument.Open(memoryStream, true))
                     {
-                        string placeholder = "{student." + key + "}";
-                        string replace_text = value;
-
-                        cachedTexts.Add(placeholder, replace_text);
-                    }
-                }
-
-                // school
-                var schoolObject = studentObject["school"];
-                foreach (var key in schoolObject.Keys)
-                {
-                    var value = schoolObject[key];
-                    var isString = value.GetType() == typeof(String);
-                    if (isString)
-                    {
-                        string placeholder = "{student.school." + key + "}";
-                        string replace_text = value;
-
-                        cachedTexts.Add(placeholder, replace_text);
-                    }
-                }
-
-                using (var ms = new MemoryStream())
-                {
-                    docxFile.CopyTo(ms);
-
-                    using (WordprocessingDocument doc = WordprocessingDocument.Open(ms, true))
-                    {
-                        foreach (var item in cachedTexts)
-                        {
-                            SearchAndReplacer.SearchAndReplace(doc, item.Key, item.Value, true);
-                        }
+                        ProcessSimplePlaceholders(new StreamReader(yamlFile.OpenReadStream()), document);
+                        ProcessTables(new StreamReader(yamlFile.OpenReadStream()), document);
                     }
 
-                    // using (var fileStreamW = new FileStream("RESULT.docx", FileMode.Truncate))
-                    // {
-                    //     fileStreamW.Write(ms.ToArray());
-                    // }
-
-                    return new FileContentResult(ms.ToArray(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    return new FileContentResult(memoryStream.ToArray(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                     {
                         FileDownloadName = $"updated_document.docx"
                     };
-
-
                 }
-                
-
-
             }
-
-
-
-
-
-
-
-
-            foreach (var uploadedFile in uploads)
-            {
-                // путь к папке Files
-                string path = "~/Files/" + uploadedFile.FileName;
-                // сохраняем файл в папку Files в каталоге wwwroot
-                // using (var fileStream = new FileStream(_appEnvironment.WebRootPath + path, FileAccess.ReadWrite))
-                // {
-                //     await uploadedFile.CopyToAsync(fileStream);
-                // }
-                //FileModel file = new FileModel { Name = uploadedFile.FileName, Path = path };
-                //_context.Files.Add(file);
-            }
-            //_context.SaveChanges();
 
             return RedirectToAction("Index");
         }
