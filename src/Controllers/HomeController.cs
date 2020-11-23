@@ -26,33 +26,16 @@ namespace replace_text_docx.Controllers
             // prepare YAML document
             TextReader yamlReader = yamlStream;
             var deserializer = new YamlDotNet.Serialization.Deserializer();
-            var studentObject = deserializer.Deserialize<dynamic>(yamlReader)["student"];
-
+            var rootLevel = deserializer.Deserialize<dynamic>(yamlReader);
             var cachedTexts = new Dictionary<string, string>();
 
-            // students
-            foreach (var key in studentObject.Keys)
+            foreach (var key in rootLevel.Keys)
             {
-                var value = studentObject[key];
+                var value = rootLevel[key];
                 var isString = value.GetType() == typeof(String);
                 if (isString)
                 {
-                    string placeholder = "{student." + key + "}";
-                    string replace_text = value;
-
-                    cachedTexts.Add(placeholder, replace_text);
-                }
-            }
-
-            // school
-            var schoolObject = studentObject["school"];
-            foreach (var key in schoolObject.Keys)
-            {
-                var value = schoolObject[key];
-                var isString = value.GetType() == typeof(String);
-                if (isString)
-                {
-                    string placeholder = "{student.school." + key + "}";
+                    string placeholder = "{" + key + "}";
                     string replace_text = value;
 
                     cachedTexts.Add(placeholder, replace_text);
@@ -71,96 +54,134 @@ namespace replace_text_docx.Controllers
             // prepare YAML document
             TextReader yamlReader = yamlStream;
             var deserializer = new YamlDotNet.Serialization.Deserializer();
-            var studentObject = deserializer.Deserialize<dynamic>(yamlReader)["student"];
-            var subjectsObject = studentObject["subjects"];
+            var rootLevel = deserializer.Deserialize<dynamic>(yamlReader);
+
+            // GridName => Array of column name to value 
+            var parsedTables = new Dictionary<string, List<Dictionary<string, string>>>();
+
+            foreach (string gridName in rootLevel.Keys)
+            {
+                var grid = rootLevel[gridName];
+                var isString = grid.GetType() == typeof(String);
+                if (isString)
+                {
+                    continue;
+                }
+                else
+                {
+                    var parsedRows = new List<Dictionary<string, string>>();
+                    foreach (var row in grid)
+                    {
+                        var columns = row.Keys;
+                        var rowWithValues = new Dictionary<string, string>();
+
+                        foreach (var column in columns)
+                        {
+                            rowWithValues.Add(column, row[column]);
+                        }
+
+                        parsedRows.Add(rowWithValues);
+                    }
+
+                    parsedTables.Add(gridName.ToLower(), parsedRows);
+                }
+            }
 
             // process docx file
             Body body = document.MainDocumentPart.Document.Body;
             foreach (Table table in body.Descendants<Table>())
             {
-                if (table.InnerText.Contains("{student.subjects"))
+                var rowInnerText = table.InnerText.ToLower();
+
+                var hasFoundGrid = false;
+
+                // find grid
+                foreach (string gridName in parsedTables.Keys)
                 {
-                    var columnTemplates = new Dictionary<string, int>();
+                    var startedFrom = "{" + gridName + ".";
 
-                    TableRow row = table.Elements<TableRow>().ElementAt(1);
-                    var columns = row.Elements<TableCell>().ToList();
-                    for (var i = 0; i < columns.Count; i++)
+                    if (rowInnerText.Contains(startedFrom))
                     {
-                        var template = columns[i].InnerText;
-                        if (template.Contains("{student.subjects."))
-                        {
-                            template = template.Replace("{student.subjects.", "");
-                            template = template.Replace("}", "");
+                        hasFoundGrid = true;
 
-                            columnTemplates.Add(template.ToLower(), i);
-                        }
-                        else
+                        // we have found YAML Grid for DOCX table
+                        var docxColumnTemplates = new List<string>();
+
+                        TableRow row = table.Elements<TableRow>().ElementAt(1);
+                        var columns = row.Elements<TableCell>().ToList();
+                        for (var i = 0; i < columns.Count; i++)
                         {
-                            columnTemplates.Add(string.Empty, i);
+                            var template = columns[i].InnerText.ToLower();
+                            
+
+                            if (template.Contains(startedFrom))
+                            {
+                                template = template.Replace(startedFrom, "");
+                                template = template.Replace("}", "");
+
+                                docxColumnTemplates.Add(template);
+                            }
+                            else
+                            {
+                                docxColumnTemplates.Add(string.Empty);
+                            }
                         }
+
+                        if (docxColumnTemplates.Count > 0)
+                        {
+                            // remove template row
+                            row.Remove();
+
+                            var parsedRows = parsedTables[gridName];
+                            foreach (var parsedRow in parsedRows)
+                            {
+                                var newTableRow = new TableRow();
+                                foreach (var docxColumn in docxColumnTemplates)
+                                {
+                                    var newValue = "";
+                                    if (!parsedRow.ContainsKey(docxColumn))
+                                    {
+                                        newValue = string.Empty;
+                                    }else
+                                    {
+                                        newValue = parsedRow[docxColumn];
+                                    }
+
+                                    newTableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(newValue)))));
+                                }
+
+                                table.AppendChild(newTableRow);
+                            }
+                        }
+
                     }
 
-                    if (columnTemplates.Count > 0)
-                    {
-                        // remove template row
-                        row.Remove();
-
-                        // subjects
-                        var subjects = studentObject["subjects"];
-                        foreach (var subjectRow in subjects)
-                        {
-                            var cachedColumns = new Dictionary<string, string>();
-                            var subjectColumns = subjectRow.Keys;
-                            foreach (var column in subjectColumns)
-                            {
-                                var value = subjectRow[column];
-                                var isString = value.GetType() == typeof(String);
-                                if (isString)
-                                {
-                                    string placeholder = column;
-                                    string replace_text = value;
-
-                                    cachedColumns.Add(placeholder.ToLower(), replace_text);
-                                }
-                            }
-
-                            TableRow newTableRow = new TableRow();
-                            foreach (var columnTemplate in columnTemplates)
-                            {
-                                if (columnTemplate.Key == string.Empty)
-                                {
-                                    newTableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(string.Empty)))));
-                                }
-                                else
-                                {
-                                    var text = cachedColumns[columnTemplate.Key];
-                                    newTableRow.AppendChild(new TableCell(new Paragraph(new Run(new Text(text)))));
-                                }
-                            }
-
-                            table.AppendChild(newTableRow);
-                        }
-                    }
+                    if (hasFoundGrid) break;
                 }
             }
         }
 
         public IActionResult Index()
         {
-            // for local testing
+            // only for local testing
+            // const string yaml_file_name = "input_file_upd.yaml";
+            // const string docx_file_name = "input_report.docx";
+            // const string output_report_file = "CHECK_RESULT.docx";
 
-            // FileStream fileStream = new FileStream("report_template.docx", FileMode.Open);
+
+            // //FileStream fileStream = new FileStream("report_template.docx", FileMode.Open);
+            // FileStream fileStream = new FileStream(docx_file_name, FileMode.Open);
             // using (var ms = new MemoryStream())
             // {
             //     fileStream.CopyTo(ms);
 
             //     using (WordprocessingDocument document = WordprocessingDocument.Open(ms, true))
             //     {
-            //         ProcessSimplePlaceholders(new StreamReader("input_file.yaml"), document);
-            //         ProcessTables(new StreamReader("input_file.yaml"), document);
+            //         ProcessSimplePlaceholders(new StreamReader(yaml_file_name), document);
+            //         ProcessTables(new StreamReader(yaml_file_name), document);
             //     }
 
-            //     using (var fileStreamW = new FileStream("CHECK_RESULT.docx", FileMode.Create))
+            //     using (var fileStreamW = new FileStream(output_report_file, FileMode.Create))
             //     {
             //         fileStreamW.Write(ms.ToArray());
             //     }
